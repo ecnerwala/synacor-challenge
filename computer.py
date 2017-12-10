@@ -21,7 +21,7 @@ class FunctionArray(list):
             return f'<bound list of {self.base.__repr__()}>'
 
 class Computer:
-    __slots__ = ('eip', 'regs', 'stack', 'mem', 'cur_line')
+    __slots__ = ('eip', 'regs', 'stack', 'mem', 'istream', 'cur_line', 'ostream')
     MOD = 1 << 15
     MSK = MOD-1
     R0 = MOD + 0
@@ -39,6 +39,8 @@ class Computer:
         self.stack = []
         self.mem = [0] * self.MOD
         self.cur_line = None
+        self.istream = istream
+        self.ostream = ostream
 
     def get_lit(self, literal):
         if literal < self.MOD:
@@ -111,15 +113,25 @@ class Computer:
             return -1
         return self.stack.pop()
     def op_out(self, a):
-        sys.stdout.write(chr(self.get_lit(a)))
+        c = chr(self.get_lit(a))
+        self.ostream.write(c)
+        if c == '\n':
+            self.ostream.flush()
     def op_in(self, a):
-        while not self.cur_line:
-            self.cur_line = input() + '\n'
+        if not self.cur_line:
+            if self.istream is sys.stdin:
+                self.cur_line = input() + '\n'
+            else:
+                self.cur_line = self.istream.readline()
+            if not self.cur_line:
+                raise RuntimeError('Hit EOF!')
+            sys.stderr.write('>>> '+self.cur_line)
+            sys.stderr.flush()
         self.set_lit(a, ord(self.cur_line[0]))
         self.cur_line = self.cur_line[1:]
     def op_noop(self):
         pass
-    
+
     class Op:
         __slots__ = ('opcode', 'name', 'nargs', 'fn')
         def __init__(self, opcode, fn, nargs):
@@ -131,7 +143,7 @@ class Computer:
             return self.fn(instance, *args, **kwargs)
         def __get__(self, instance, owner):
             return MethodType(self, instance) if instance else self
-    
+
     ops = FunctionArray([
         Op( 0, op_halt, 0),
         Op( 1,  op_set, 2),
@@ -156,10 +168,13 @@ class Computer:
         Op(20,   op_in, 1),
         Op(21, op_noop, 0),
     ])
-    
+
     def step(self):
         if self.eip == -1:
             raise RuntimeError('Computer halted')
+
+        cur_eip = self.eip
+
         opcode = self.mem[self.eip]
         self.eip += 1
 
@@ -172,6 +187,10 @@ class Computer:
         if neip is not None:
             self.eip = neip
 
-    def run(self, num_steps=None):
+    def run(self, num_steps=None, *, istream=None, ostream=None):
+        if istream is not None:
+            self.istream = istream
+        if ostream is not None:
+            self.ostream = ostream
         for _ in (itertools.count() if num_steps is None else range(num_steps)):
             self.step()
