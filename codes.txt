@@ -1,0 +1,3 @@
+BTIusRvheIiH  # arch-spec
+omOdvXeQsntd  # challenge.bin
+MKwBjhCceLVr  # self-test
