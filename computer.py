@@ -133,14 +133,14 @@ class Computer:
             self.debug_print(f'Output flushed')
     def op_in(self, a):
         if not self.cur_line:
-            self.debug_print(f'Input')
+            eprint(f'Step {self.num_steps}: Input')
             if self.istream is sys.stdin:
                 self.cur_line = input() + '\n'
             else:
                 self.cur_line = self.istream.readline()
             if not self.cur_line:
                 raise RuntimeError('Hit EOF!')
-            eprintf('>>> '+self.cur_line[:-1]) # Strip the '\n'
+            eprint('>>> '+self.cur_line[:-1]) # Strip the '\n'
         self.set_lit(a, ord(self.cur_line[0]))
         self.cur_line = self.cur_line[1:]
     def op_noop(self):
@@ -235,10 +235,12 @@ class Computer:
 
         self.num_steps += 1
 
-    def run(self, num_steps=None, *, istream=None, ostream=None):
+    def run(self, num_steps=None, *, max_step=None, istream=None, ostream=None):
         if istream is not None:
             self.istream = istream
         if ostream is not None:
             self.ostream = ostream
+        if max_step is not None:
+            num_steps = max_step - self.num_steps
         for _ in (itertools.count() if num_steps is None else range(num_steps)):
             self.step()
