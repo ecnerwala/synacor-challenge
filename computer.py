@@ -3,6 +3,9 @@ import itertools
 
 from types import MethodType
 
+def eprint(*args, **kwargs):
+    print(*args, file=sys.stderr, flush=True, **kwargs)
+
 class FunctionArray(list):
     def __get__(self, instance, owner):
         return self.MethodView(self, instance) if instance else self
@@ -21,7 +24,7 @@ class FunctionArray(list):
             return f'<bound list of {self.base.__repr__()}>'
 
 class Computer:
-    __slots__ = ('eip', 'regs', 'stack', 'mem', 'istream', 'cur_line', 'ostream')
+    __slots__ = ('num_steps', 'eip', 'regs', 'stack', 'mem', 'istream', 'cur_line', 'ostream', 'debug')
     MOD = 1 << 15
     MSK = MOD-1
     R0 = MOD + 0
@@ -34,6 +37,7 @@ class Computer:
     R7 = MOD + 7
 
     def __init__(self, istream=sys.stdin, ostream=sys.stdout):
+        self.num_steps = 0
         self.eip = 0
         self.regs = [0] * 8
         self.stack = []
@@ -41,17 +45,26 @@ class Computer:
         self.cur_line = None
         self.istream = istream
         self.ostream = ostream
+        self.debug = False
+    
+    def debug_print(self, *args, **kwargs):
+        if self.debug:
+            eprint(f'Step {self.num_steps}:', *args, **kwargs)
 
     def get_lit(self, literal):
         if literal < self.MOD:
             return literal
         elif literal < self.MOD + 8:
+            if literal == self.R7:
+                self.debug_print(f"Getting R7 = {self.regs[7]}")
             return self.regs[literal - self.MOD]
         else:
             raise RuntimeError('literal out of bounds')
     def set_lit(self, literal, value):
         assert 0 <= value < self.MOD
         if self.MOD <= literal < self.MOD + 8:
+            if literal == self.R7:
+                self.debug_print(f"Setting R7 = {value}")
             self.regs[literal - self.MOD] = value
         elif literal < self.MOD:
             raise RuntimeError('Cannot set a numeric literal')
@@ -117,16 +130,17 @@ class Computer:
         self.ostream.write(c)
         if c == '\n':
             self.ostream.flush()
+            self.debug_print(f'Output flushed')
     def op_in(self, a):
         if not self.cur_line:
+            self.debug_print(f'Input')
             if self.istream is sys.stdin:
                 self.cur_line = input() + '\n'
             else:
                 self.cur_line = self.istream.readline()
             if not self.cur_line:
                 raise RuntimeError('Hit EOF!')
-            sys.stderr.write('>>> '+self.cur_line)
-            sys.stderr.flush()
+            eprintf('>>> '+self.cur_line[:-1]) # Strip the '\n'
         self.set_lit(a, ord(self.cur_line[0]))
         self.cur_line = self.cur_line[1:]
     def op_noop(self):
@@ -168,6 +182,38 @@ class Computer:
         Op(20,   op_in, 1),
         Op(21, op_noop, 0),
     ])
+    
+    def parse_text(self, start_pos=None, num_bytes=40):
+        if start_pos is None:
+            start_pos = self.eip
+        elif start_pos < 0:
+            start_pos = self.eip - start_pos
+        cur_pos = start_pos
+        while cur_pos < start_pos + num_bytes:
+            loc = cur_pos
+            i = self.mem[cur_pos]
+            cur_pos += 1
+            if not 0 <= i < len(self.ops):
+                print(f'{loc}: ILLOP {i}')
+                continue
+            op = self.ops[i]
+            s = f'{loc}: {op.name}'
+            try:
+                for _ in range(op.nargs):
+                    arg = self.mem[cur_pos]
+                    cur_pos += 1
+                    if arg < self.MOD:
+                        if arg >= self.MOD / 2:
+                            arg -= self.MOD
+                        arg = str(arg)
+                    elif arg < self.MOD + 8:
+                        arg = 'R'+str(arg - self.MOD)
+                    else:
+                        arg = f'?{arg}/R{arg-self.MOD}'
+                    s += ' ' + arg
+            except IndexError:
+                s += ' EOM'
+            print(s)
 
     def step(self):
         if self.eip == -1:
@@ -186,6 +232,8 @@ class Computer:
         neip = op(*args)
         if neip is not None:
             self.eip = neip
+
+        self.num_steps += 1
 
     def run(self, num_steps=None, *, istream=None, ostream=None):
         if istream is not None:
